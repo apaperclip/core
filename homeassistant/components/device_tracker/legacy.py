@@ -209,7 +209,11 @@ async def async_setup_integration(
     tracker_future: asyncio.Future[DeviceTracker],
 ) -> None:
     """Set up the legacy integration."""
-    tracker = await get_tracker(hass, config)
+    legacy_platforms, imported_platform = await async_extract_config(hass, config)
+    if imported_platform and not legacy_platforms:
+        tracker = DeviceTracker(hass, DEFAULT_CONSIDER_HOME, DEFAULT_TRACK_NEW, {}, [])
+    else:
+        tracker = await get_tracker(hass, config)
     tracker_future.set_result(tracker)
 
     warned_called_see = False
@@ -234,8 +238,6 @@ async def async_setup_integration(
     hass.services.async_register(
         DOMAIN, SERVICE_SEE, async_see_service, SERVICE_SEE_PAYLOAD_SCHEMA
     )
-
-    legacy_platforms = await async_extract_config(hass, config)
 
     setup_tasks = [
         create_eager_task(legacy_platform.async_setup_legacy(hass, tracker))
@@ -365,9 +367,10 @@ class DeviceTrackerPlatform:
 
 async def async_extract_config(
     hass: HomeAssistant, config: ConfigType
-) -> list[DeviceTrackerPlatform]:
+) -> tuple[list[DeviceTrackerPlatform], bool]:
     """Extract device tracker config and split between legacy and modern."""
     legacy: list[DeviceTrackerPlatform] = []
+    imported_platform = False
 
     for platform in await asyncio.gather(
         *(
@@ -379,14 +382,17 @@ async def async_extract_config(
         if platform is None:
             continue
 
-        if platform.type == PLATFORM_TYPE_LEGACY:
+        if hasattr(platform.platform, "async_import_config"):
+            await platform.platform.async_import_config(hass, platform.config)
+            imported_platform = True
+        elif platform.type == PLATFORM_TYPE_LEGACY:
             legacy.append(platform)
         else:
             async_create_platform_config_not_supported_issue(
                 hass, platform.name, DOMAIN
             )
 
-    return legacy
+    return legacy, imported_platform
 
 
 async def async_create_platform_type(

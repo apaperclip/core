@@ -21,6 +21,9 @@ import voluptuous as vol
 from homeassistant.components.sensor import (
     CONF_STATE_CLASS,
     PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
 )
 from homeassistant.const import (
     CONF_DEVICE_CLASS,
@@ -33,10 +36,15 @@ from homeassistant.const import (
     CONF_USERNAME,
     CONF_VALUE_TEMPLATE,
     STATE_UNKNOWN,
+    EntityCategory,
+    UnitOfTime,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.template import Template
 from homeassistant.helpers.trigger_template_entity import (
     CONF_AVAILABILITY,
@@ -47,6 +55,7 @@ from homeassistant.helpers.trigger_template_entity import (
 )
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from . import SnmpConfigEntry
 from .const import (
     CONF_ACCEPT_ERRORS,
     CONF_AUTH_KEY,
@@ -69,6 +78,13 @@ from .const import (
     MAP_PRIV_PROTOCOLS,
     SNMP_VERSIONS,
 )
+from .coordinator import (
+    ARUBA_CLUSTER_MASTER,
+    ARUBA_INSTANT_CLIENT_OIDS,
+    SnmpAccessPointInfo,
+    SnmpDataUpdateCoordinator,
+)
+from .entity import SnmpAccessPointEntity, SnmpHostEntity
 from .util import async_create_request_cmd_args
 
 _LOGGER = logging.getLogger(__name__)
@@ -282,3 +298,243 @@ class SnmpData:
                 )
                 return self._default_value
         return str(value)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: SnmpConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Set up diagnostic sensors for the polled SNMP host."""
+    coordinator = entry.runtime_data
+    entities: list[SensorEntity] = [
+        SnmpAssociatedClientsSensor(coordinator, entry),
+        SnmpUptimeSensor(coordinator, entry),
+    ]
+    if entry.data[CONF_BASEOID].strip(".") in ARUBA_INSTANT_CLIENT_OIDS:
+        entities.extend(
+            (
+                SnmpAccessPointsSensor(coordinator, entry),
+                SnmpManagementMasterSensor(coordinator, entry),
+            )
+        )
+    async_add_entities(entities)
+
+    tracked_access_points: set[str] = set()
+
+    @callback
+    def add_access_point_entities() -> None:
+        new_access_points = (
+            coordinator.data.access_points.keys() - tracked_access_points
+        )
+        if not new_access_points:
+            return
+        tracked_access_points.update(new_access_points)
+        entities: list[SensorEntity] = []
+        for mac in sorted(new_access_points):
+            access_point = coordinator.data.access_points[mac]
+            entities.extend(
+                (
+                    SnmpAccessPointClientsSensor(coordinator, entry, access_point),
+                    SnmpClusterAccessPointClientsSensor(
+                        coordinator, entry, access_point
+                    ),
+                )
+            )
+        async_add_entities(entities)
+
+    add_access_point_entities()
+    entry.async_on_unload(coordinator.async_add_listener(add_access_point_entities))
+
+
+class SnmpAssociatedClientsSensor(SnmpHostEntity, SensorEntity):
+    """Represent the number of clients returned by the SNMP table."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:account-multiple"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_translation_key = "associated_clients"
+
+    def __init__(
+        self,
+        coordinator: SnmpDataUpdateCoordinator,
+        entry: SnmpConfigEntry,
+    ) -> None:
+        """Initialize the associated clients sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_associated_clients"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of associated clients."""
+        return len(self.coordinator.data.mac_addresses)
+
+
+class SnmpAccessPointsSensor(SnmpHostEntity, SensorEntity):
+    """Represent access points associated with an Aruba Instant cluster."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:access-point-network"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_translation_key = "access_points"
+
+    def __init__(
+        self,
+        coordinator: SnmpDataUpdateCoordinator,
+        entry: SnmpConfigEntry,
+    ) -> None:
+        """Initialize the access points sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_access_points"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of associated access points."""
+        return len(self.coordinator.data.access_points)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, list[dict[str, str]]]:
+        """Return associated access point names and MAC addresses."""
+        return {
+            "access_points": [
+                {"name": access_point.name, "mac_address": mac}
+                for mac, access_point in sorted(
+                    self.coordinator.data.access_points.items(),
+                    key=lambda item: (item[1].name, item[0]),
+                )
+            ]
+        }
+
+
+class SnmpManagementMasterSensor(SnmpHostEntity, SensorEntity):
+    """Represent the access point currently owning the management VIP."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:server-network"
+    _attr_translation_key = "management_master"
+
+    def __init__(
+        self,
+        coordinator: SnmpDataUpdateCoordinator,
+        entry: SnmpConfigEntry,
+    ) -> None:
+        """Initialize the management master sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_management_master"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the name of the access point owning the management VIP."""
+        management_masters = [
+            access_point.name
+            for access_point in self.coordinator.data.access_points.values()
+            if access_point.role == ARUBA_CLUSTER_MASTER
+        ]
+        if len(management_masters) != 1:
+            return None
+        return management_masters[0]
+
+    @property
+    def available(self) -> bool:
+        """Return whether exactly one management master is reported."""
+        return (
+            super().available
+            and sum(
+                access_point.role == ARUBA_CLUSTER_MASTER
+                for access_point in self.coordinator.data.access_points.values()
+            )
+            == 1
+        )
+
+
+class SnmpClusterAccessPointClientsSensor(SnmpHostEntity, SensorEntity):
+    """Represent an AP client count on the virtual cluster device."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:account-multiple"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_translation_key = "access_point_connected_clients"
+
+    def __init__(
+        self,
+        coordinator: SnmpDataUpdateCoordinator,
+        entry: SnmpConfigEntry,
+        access_point: SnmpAccessPointInfo,
+    ) -> None:
+        """Initialize a cluster AP client distribution sensor."""
+        super().__init__(coordinator, entry)
+        self._access_point_mac = access_point.mac_address
+        self._attr_translation_placeholders = {"access_point": access_point.name}
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{access_point.mac_address}_cluster_connected_clients"
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the number of clients connected to this access point."""
+        if (
+            access_point := self.coordinator.data.access_points.get(
+                self._access_point_mac
+            )
+        ) is None:
+            return None
+        return access_point.connected_clients
+
+
+class SnmpAccessPointClientsSensor(SnmpAccessPointEntity, SensorEntity):
+    """Represent the number of clients connected to an access point."""
+
+    _attr_icon = "mdi:account-multiple"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_translation_key = "connected_clients"
+
+    def __init__(
+        self,
+        coordinator: SnmpDataUpdateCoordinator,
+        entry: SnmpConfigEntry,
+        access_point: SnmpAccessPointInfo,
+    ) -> None:
+        """Initialize an access point client sensor."""
+        super().__init__(coordinator, entry, access_point)
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{access_point.mac_address}_connected_clients"
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the number of clients connected to this access point."""
+        if (access_point := self.access_point) is None:
+            return None
+        return access_point.connected_clients
+
+
+class SnmpUptimeSensor(SnmpHostEntity, SensorEntity):
+    """Represent the optional SNMP system uptime."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_translation_key = "uptime"
+
+    def __init__(
+        self,
+        coordinator: SnmpDataUpdateCoordinator,
+        entry: SnmpConfigEntry,
+    ) -> None:
+        """Initialize the uptime sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_uptime"
+
+    @property
+    def available(self) -> bool:
+        """Return whether system uptime is supported and current."""
+        return (
+            super().available and self.coordinator.data.system_info.uptime is not None
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return system uptime in seconds."""
+        return self.coordinator.data.system_info.uptime

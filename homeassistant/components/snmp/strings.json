@@ -1,0 +1,91 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "initiate_flow": {
+      "user": "Add device"
+    },
+    "step": {
+      "reconfigure": {
+        "data": {
+          "auth_key": "[%key:component::snmp::config::step::user::data::auth_key%]",
+          "baseoid": "[%key:component::snmp::config::step::user::data::baseoid%]",
+          "community": "[%key:component::snmp::config::step::user::data::community%]",
+          "host": "[%key:common::config_flow::data::host%]",
+          "priv_key": "[%key:component::snmp::config::step::user::data::priv_key%]",
+          "version": "[%key:component::snmp::config::step::user::data::version%]"
+        },
+        "data_description": {
+          "auth_key": "[%key:component::snmp::config::step::user::data_description::auth_key%]",
+          "priv_key": "[%key:component::snmp::config::step::user::data_description::priv_key%]"
+        },
+        "title": "Reconfigure SNMP device tracker"
+      },
+      "user": {
+        "data": {
+          "auth_key": "Authentication key",
+          "baseoid": "Base OID",
+          "community": "Community or username",
+          "host": "[%key:common::config_flow::data::host%]",
+          "priv_key": "Privacy key",
+          "version": "SNMP version"
+        },
+        "data_description": {
+          "auth_key": "Only used for SNMPv3 authentication.",
+          "priv_key": "Only used for SNMPv3 privacy."
+        },
+        "description": "Configure the SNMP table containing connected client MAC addresses.",
+        "title": "Add SNMP device tracker"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "name": "Connected"
+      }
+    },
+    "sensor": {
+      "access_point_connected_clients": {
+        "name": "{access_point} connected clients"
+      },
+      "access_points": {
+        "name": "Access points"
+      },
+      "associated_clients": {
+        "name": "Associated clients"
+      },
+      "connected_clients": {
+        "name": "Connected clients"
+      },
+      "management_master": {
+        "name": "Management master"
+      },
+      "uptime": {
+        "name": "Uptime"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "consider_home": "Consider home duration",
+          "interval_seconds": "Scan interval"
+        },
+        "data_description": {
+          "consider_home": "Seconds a client remains home after it is no longer returned by the SNMP table.",
+          "interval_seconds": "Seconds between SNMP table scans."
+        }
+      }
+    }
+  }
+}
