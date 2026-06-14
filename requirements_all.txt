@@ -205,6 +205,9 @@ aioaquacell==1.0.0
 # homeassistant.components.vistapool
 aioaquarite==0.5.1
 
+# homeassistant.components.aruba
+aioarubainstant==0.1.0
+
 # homeassistant.components.aseko_pool_live
 aioaseko==1.0.0
 
@@ -1829,7 +1832,6 @@ pencompy==0.0.3
 # homeassistant.components.escea
 pescea==1.0.12
 
-# homeassistant.components.aruba
 # homeassistant.components.cisco_ios
 pexpect==4.9.0
 

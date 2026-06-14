@@ -1,0 +1,98 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_service%]",
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_host": "The host or URL is invalid.",
+      "invalid_response": "The controller returned unsupported data.",
+      "not_master": "The REST API is available only on the Aruba Instant master AP.",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "rest_disabled": "The REST API is not enabled on the controller.",
+      "unique_id_mismatch": "The connection settings belong to a different Aruba Instant cluster.",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_host": "The host or URL is invalid.",
+      "invalid_response": "The controller returned malformed or unsupported command output.",
+      "not_master": "Connect to the Aruba Instant master AP or virtual controller address.",
+      "rest_disabled": "Enable the REST API on the master AP with `allow-rest-api` before continuing.",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "step": {
+      "reauth_confirm": {
+        "data": {
+          "password": "[%key:common::config_flow::data::password%]",
+          "username": "[%key:common::config_flow::data::username%]"
+        },
+        "description": "Enter the current credentials for {name}.",
+        "title": "[%key:common::config_flow::title::reauth%]"
+      },
+      "reconfigure": {
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]",
+          "port": "[%key:common::config_flow::data::port%]",
+          "verify_ssl": "[%key:common::config_flow::data::verify_ssl%]"
+        },
+        "data_description": {
+          "host": "The hostname or IP address of the Aruba Instant master AP or virtual controller.",
+          "port": "The HTTPS REST API port.",
+          "verify_ssl": "Verify the controller's TLS certificate."
+        },
+        "description": "Update the connection settings for {name}.",
+        "title": "Reconfigure Aruba Instant"
+      },
+      "user": {
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]",
+          "password": "[%key:common::config_flow::data::password%]",
+          "port": "[%key:common::config_flow::data::port%]",
+          "username": "[%key:common::config_flow::data::username%]",
+          "verify_ssl": "[%key:common::config_flow::data::verify_ssl%]"
+        },
+        "data_description": {
+          "host": "The hostname or IP address of the Aruba Instant master AP or virtual controller.",
+          "password": "The controller administrator password.",
+          "port": "The HTTPS REST API port. The default is 4343.",
+          "username": "The controller administrator username.",
+          "verify_ssl": "Verify the controller's TLS certificate. Disable only if the certificate cannot be trusted."
+        },
+        "description": "Enable the REST API on the Aruba Instant master AP with `allow-rest-api`, then enter the controller connection details.",
+        "title": "Add Aruba Instant"
+      }
+    }
+  },
+  "exceptions": {
+    "authentication_error": {
+      "message": "Authentication with the Aruba Instant controller failed."
+    },
+    "connection_error": {
+      "message": "Communication with the Aruba Instant controller failed."
+    },
+    "invalid_response": {
+      "message": "The Aruba Instant controller returned malformed or unsupported command output."
+    },
+    "not_master": {
+      "message": "The REST request was sent to an access point that is not the current master."
+    },
+    "rest_disabled": {
+      "message": "The REST API is not enabled on the Aruba Instant controller."
+    },
+    "update_error": {
+      "message": "The Aruba Instant controller could not provide an updated snapshot."
+    }
+  },
+  "issues": {
+    "deprecated_yaml": {
+      "description": "The Aruba device tracker YAML configuration has been imported. This integration now uses the Aruba Instant HTTPS REST API instead of SSH.\n\n1. Confirm that the REST API is enabled on the master AP with `allow-rest-api`.\n2. Complete any required reauthentication or TLS configuration from **Settings > Devices & services**.\n3. Remove the Aruba platform from the `device_tracker` section of `configuration.yaml`.\n4. Restart Home Assistant.\n\nThe imported integration will continue polling after the YAML is removed.",
+      "title": "Remove the deprecated Aruba YAML configuration"
+    },
+    "deprecated_yaml_import_failed": {
+      "description": "Home Assistant could not import the Aruba device tracker YAML configuration because the new integration uses the Aruba Instant HTTPS REST API instead of SSH.\n\n1. Enable the REST API on the master AP with `allow-rest-api`.\n2. Add Aruba from **Settings > Devices & services** using the master AP or virtual controller address.\n3. Configure port 4343 and TLS certificate verification as required by your controller.\n4. Remove the Aruba platform from the `device_tracker` section of `configuration.yaml`.\n5. Restart Home Assistant.\n\nNo Aruba presence data will be available until UI setup succeeds.",
+      "title": "The Aruba YAML configuration could not be imported"
+    }
+  }
+}
