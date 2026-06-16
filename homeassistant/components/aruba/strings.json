@@ -65,6 +65,27 @@
       }
     }
   },
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "name": "Connected"
+      }
+    },
+    "sensor": {
+      "access_points": {
+        "name": "Access points"
+      },
+      "connected_clients": {
+        "name": "Connected clients"
+      },
+      "ip_address": {
+        "name": "[%key:common::config_flow::data::ip%]"
+      },
+      "master_access_point": {
+        "name": "Master IP address"
+      }
+    }
+  },
   "exceptions": {
     "authentication_error": {
       "message": "Authentication with the Aruba Instant controller failed."

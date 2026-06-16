@@ -44,7 +44,8 @@ async def _async_setup_entry(
     hass: HomeAssistant, entry: MockConfigEntry
 ) -> MockConfigEntry:
     """Set up an Aruba config entry."""
-    entry.add_to_hass(hass)
+    if hass.config_entries.async_get_entry(entry.entry_id) is None:
+        entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry
@@ -61,6 +62,26 @@ async def _entity_id(
     return entity_id
 
 
+def _enable_tracker_before_setup(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    entry: MockConfigEntry,
+    mac: str,
+    *,
+    suggested_object_id: str | None = None,
+) -> None:
+    """Create an enabled tracker registry entry before platform setup."""
+    if hass.config_entries.async_get_entry(entry.entry_id) is None:
+        entry.add_to_hass(hass)
+    entity_registry.async_get_or_create(
+        DEVICE_TRACKER_DOMAIN,
+        DOMAIN,
+        f"{entry.unique_id}_{mac}",
+        suggested_object_id=suggested_object_id,
+        config_entry=entry,
+    )
+
+
 async def test_client_tracker(
     hass: HomeAssistant,
     mock_aruba_client: AsyncMock,
@@ -68,15 +89,61 @@ async def test_client_tracker(
     entity_registry: er.EntityRegistry,
 ) -> None:
     """Test client identity and attributes."""
+    _enable_tracker_before_setup(hass, entity_registry, mock_config_entry, MAC)
     entry = await _async_setup_entry(hass, mock_config_entry)
     entity_id = await _entity_id(entity_registry, entry, MAC)
     state = _state(hass, entity_id)
 
     assert state.state == STATE_HOME
-    assert state.name == "Laptop"
+    assert state.name == f"Laptop ({MAC})"
     assert state.attributes["ip"] == "192.0.2.20"
     assert state.attributes["mac"] == MAC
     assert state.attributes["host_name"] == "Laptop"
+
+
+async def test_all_clients_created_disabled_by_default(
+    hass: HomeAssistant,
+    mock_aruba_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test every discovered client is registered but disabled by default."""
+    second_client = ArubaClient(mac=MAC_2, hostname="Phone")
+    mock_aruba_client.async_get_snapshot.return_value = create_snapshot(
+        (*SNAPSHOT.clients, second_client), client_count=2
+    )
+    entry = await _async_setup_entry(hass, mock_config_entry)
+
+    expected_names = {
+        MAC: f"Laptop ({MAC})",
+        MAC_2: f"Phone ({MAC_2})",
+    }
+    for mac, expected_name in expected_names.items():
+        entity_id = await _entity_id(entity_registry, entry, mac)
+        entity = entity_registry.async_get(entity_id)
+        assert entity is not None
+        assert entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+        assert entity.original_name == expected_name
+        assert hass.states.get(entity_id) is None
+
+
+async def test_client_without_hostname_uses_mac_name(
+    hass: HomeAssistant,
+    mock_aruba_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test a client without a hostname is identified by MAC address."""
+    mock_aruba_client.async_get_snapshot.return_value = create_snapshot(
+        (ArubaClient(mac=MAC, hostname=None),)
+    )
+    entry = await _async_setup_entry(hass, mock_config_entry)
+
+    entity_id = await _entity_id(entity_registry, entry, MAC)
+    entity = entity_registry.async_get(entity_id)
+    assert entity is not None
+    assert entity.original_name == MAC
+    assert entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION
 
 
 async def test_mac_normalization(
@@ -101,6 +168,7 @@ async def test_dynamic_discovery_and_roaming(
     entity_registry: er.EntityRegistry,
 ) -> None:
     """Test new clients and roaming retain stable entities."""
+    _enable_tracker_before_setup(hass, entity_registry, mock_config_entry, MAC)
     entry = await _async_setup_entry(hass, mock_config_entry)
     first_entity_id = await _entity_id(entity_registry, entry, MAC)
 
@@ -121,9 +189,17 @@ async def test_dynamic_discovery_and_roaming(
 
     assert await _entity_id(entity_registry, entry, MAC) == first_entity_id
     second_entity_id = await _entity_id(entity_registry, entry, MAC_2)
-    assert _state(hass, second_entity_id).state == STATE_HOME
+    second_entity = entity_registry.async_get(second_entity_id)
+    assert second_entity is not None
+    assert second_entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(second_entity_id) is None
     assert (
-        len(entity_registry.entities.get_entries_for_config_entry_id(entry.entry_id))
+        sum(
+            entity_entry.domain == DEVICE_TRACKER_DOMAIN
+            for entity_entry in entity_registry.entities.get_entries_for_config_entry_id(
+                entry.entry_id
+            )
+        )
         == 2
     )
 
@@ -135,6 +211,7 @@ async def test_client_disappears(
     entity_registry: er.EntityRegistry,
 ) -> None:
     """Test a missing client becomes disconnected."""
+    _enable_tracker_before_setup(hass, entity_registry, mock_config_entry, MAC)
     entry = await _async_setup_entry(hass, mock_config_entry)
     entity_id = await _entity_id(entity_registry, entry, MAC)
 
@@ -157,12 +234,12 @@ async def test_restore_absent_client(
     """Test a registry-known client is restored while offline."""
     mock_aruba_client.async_get_snapshot.return_value = ZERO_CLIENT_SNAPSHOT
     mock_config_entry.add_to_hass(hass)
-    entity_registry.async_get_or_create(
-        DEVICE_TRACKER_DOMAIN,
-        DOMAIN,
-        f"{mock_config_entry.unique_id}_{MAC}",
+    _enable_tracker_before_setup(
+        hass,
+        entity_registry,
+        mock_config_entry,
+        MAC,
         suggested_object_id="offline_laptop",
-        config_entry=mock_config_entry,
     )
 
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -178,6 +255,7 @@ async def test_failed_refresh_keeps_last_presence(
     entity_registry: er.EntityRegistry,
 ) -> None:
     """Test a failed refresh marks entities unavailable without clearing clients."""
+    _enable_tracker_before_setup(hass, entity_registry, mock_config_entry, MAC)
     entry = await _async_setup_entry(hass, mock_config_entry)
     entity_id = await _entity_id(entity_registry, entry, MAC)
     mock_aruba_client.async_get_snapshot.side_effect = ArubaInstantConnectionError(

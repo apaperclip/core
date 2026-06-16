@@ -25,6 +25,8 @@ from . import ArubaConfigEntry
 from .const import DOMAIN
 from .coordinator import ArubaDataUpdateCoordinator
 
+PARALLEL_UPDATES = 1
+
 PLATFORM_SCHEMA = DEVICE_TRACKER_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
@@ -110,6 +112,9 @@ async def async_setup_entry(
 class ArubaScannerEntity(CoordinatorEntity[ArubaDataUpdateCoordinator], ScannerEntity):
     """Representation of a client connected to Aruba Instant."""
 
+    _attr_entity_registry_enabled_default = False
+    _attr_has_entity_name = True
+
     def __init__(
         self,
         coordinator: ArubaDataUpdateCoordinator,
@@ -130,11 +135,6 @@ class ArubaScannerEntity(CoordinatorEntity[ArubaDataUpdateCoordinator], ScannerE
         return self._unique_id
 
     @property
-    def entity_registry_enabled_default(self) -> bool:
-        """Enable discovered trackers to preserve legacy behavior."""
-        return True
-
-    @property
     def is_connected(self) -> bool:
         """Return whether the client is in the latest successful snapshot."""
         return self._mac in self.coordinator.clients
@@ -143,11 +143,13 @@ class ArubaScannerEntity(CoordinatorEntity[ArubaDataUpdateCoordinator], ScannerE
     def _update_client(self, client: ArubaClient | None) -> None:
         """Update the last known client details."""
         if client is None:
-            self._attr_name = f"Aruba {self._mac}"
+            self._attr_name = self._mac
             self._attr_hostname = None
             self._attr_ip_address = None
             return
-        self._attr_name = client.hostname or f"Aruba {self._mac}"
+        self._attr_name = (
+            f"{client.hostname} ({self._mac})" if client.hostname else self._mac
+        )
         self._attr_hostname = client.hostname
         self._attr_ip_address = client.ip_address
 

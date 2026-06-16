@@ -35,7 +35,7 @@
         "esbenp.prettier-vscode",
         "GitHub.vscode-pull-request-github",
         "GitHub.copilot",
-        "openai.codex"
+        "openai.chatgpt"
       ],
       // Please keep this file in sync with settings in home-assistant/.vscode/settings.default.jsonc
       "settings": {

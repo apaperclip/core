@@ -24,27 +24,50 @@ from tests.common import MockConfigEntry
 
 
 @pytest.mark.parametrize(
-    ("error", "expected_error"),
+    ("error", "expected_error", "resets_session"),
     [
         pytest.param(
             ArubaInstantAuthenticationError("auth"),
             ConfigEntryAuthFailed,
+            False,
             id="authentication",
         ),
         pytest.param(
             ArubaInstantConnectionError("connection"),
             UpdateFailed,
+            False,
             id="connection",
         ),
         pytest.param(
-            ArubaInstantRestDisabledError("rest"), UpdateFailed, id="rest-disabled"
+            ArubaInstantRestDisabledError("rest"),
+            UpdateFailed,
+            False,
+            id="rest-disabled",
         ),
         pytest.param(
-            ArubaInstantNotMasterError("master"), UpdateFailed, id="not-master"
+            ArubaInstantNotMasterError("master"),
+            UpdateFailed,
+            False,
+            id="not-master",
         ),
-        pytest.param(ArubaInstantCommandError("command"), UpdateFailed, id="command"),
-        pytest.param(ArubaInstantParseError("parse"), UpdateFailed, id="parse"),
-        pytest.param(ArubaInstantError("other"), UpdateFailed, id="other"),
+        pytest.param(
+            ArubaInstantCommandError("command"),
+            UpdateFailed,
+            True,
+            id="command",
+        ),
+        pytest.param(
+            ArubaInstantParseError("parse"),
+            UpdateFailed,
+            True,
+            id="parse",
+        ),
+        pytest.param(
+            ArubaInstantError("other"),
+            UpdateFailed,
+            False,
+            id="other",
+        ),
     ],
 )
 async def test_exception_mapping(
@@ -53,6 +76,7 @@ async def test_exception_mapping(
     mock_config_entry: MockConfigEntry,
     error: Exception,
     expected_error: type[Exception],
+    resets_session: bool,
 ) -> None:
     """Test coordinator exception mapping."""
     mock_aruba_client.async_get_snapshot.side_effect = error
@@ -60,6 +84,11 @@ async def test_exception_mapping(
 
     with pytest.raises(expected_error):
         await coordinator._async_update_data()
+
+    if resets_session:
+        mock_aruba_client.async_logout.assert_awaited_once_with()
+    else:
+        mock_aruba_client.async_logout.assert_not_awaited()
 
 
 async def test_zero_client_snapshot(

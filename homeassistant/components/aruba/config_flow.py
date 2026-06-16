@@ -30,9 +30,9 @@ from homeassistant.const import (
     CONF_VERIFY_SSL,
 )
 from homeassistant.helpers import selector
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DEFAULT_PORT, DEFAULT_VERIFY_SSL, DOMAIN
+from .ssl import get_ssl_context
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -74,6 +74,16 @@ RECONFIGURE_SCHEMA = vol.Schema(
         vol.Required(CONF_VERIFY_SSL): selector.BooleanSelector(),
     }
 )
+
+
+def _exception_classes(err: BaseException) -> str:
+    """Return an exception chain containing class names only."""
+    classes: list[str] = []
+    current: BaseException | None = err
+    while current is not None and type(current).__name__ not in classes:
+        classes.append(type(current).__name__)
+        current = current.__cause__ or current.__context__
+    return " -> ".join(classes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +138,13 @@ def _normalize_data(data: Mapping[str, Any]) -> dict[str, Any]:
     normalized[CONF_HOST] = host
     if embedded_port is not None:
         normalized[CONF_PORT] = embedded_port
-    normalized.setdefault(CONF_PORT, DEFAULT_PORT)
+    port = normalized.get(CONF_PORT, DEFAULT_PORT)
+    if isinstance(port, bool) or not isinstance(port, int | float):
+        raise TypeError
+    normalized_port = int(port)
+    if port != normalized_port or not 1 <= normalized_port <= 65535:
+        raise ValueError
+    normalized[CONF_PORT] = normalized_port
     normalized.setdefault(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
     return normalized
 
@@ -150,8 +166,7 @@ async def _async_validate_input(
         data[CONF_USERNAME],
         data[CONF_PASSWORD],
         port=data[CONF_PORT],
-        verify_ssl=data[CONF_VERIFY_SSL],
-        session=async_get_clientsession(flow.hass),
+        verify_ssl=get_ssl_context(data[CONF_VERIFY_SSL]),
     )
     try:
         snapshot = await client.async_get_snapshot()
@@ -180,7 +195,11 @@ class ArubaConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = "invalid_host"
         except ArubaInstantAuthenticationError:
             errors["base"] = "invalid_auth"
-        except ArubaInstantConnectionError:
+        except ArubaInstantConnectionError as err:
+            _LOGGER.debug(
+                "Aruba connection validation failed (%s)",
+                _exception_classes(err),
+            )
             errors["base"] = "cannot_connect"
         except ArubaInstantRestDisabledError:
             errors["base"] = "rest_disabled"
@@ -188,7 +207,11 @@ class ArubaConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = "not_master"
         except ArubaInstantCommandError, ArubaInstantParseError:
             errors["base"] = "invalid_response"
-        except ArubaInstantError:
+        except ArubaInstantError as err:
+            _LOGGER.debug(
+                "Aruba validation failed (%s)",
+                _exception_classes(err),
+            )
             errors["base"] = "cannot_connect"
         except Exception as err:  # noqa: BLE001
             _LOGGER.error(
@@ -207,7 +230,7 @@ class ArubaConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 normalized_input = _normalize_data(user_input)
-            except ValueError:
+            except TypeError, ValueError:
                 errors["base"] = "invalid_host"
             else:
                 if result := await self._async_validate(normalized_input, errors):
@@ -231,7 +254,7 @@ class ArubaConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         try:
             data = _normalize_data(import_data)
-        except ValueError:
+        except TypeError, ValueError:
             return self.async_abort(reason="invalid_host")
         if not (result := await self._async_validate(data, errors)):
             return self.async_abort(reason=errors["base"])
@@ -287,7 +310,7 @@ class ArubaConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 normalized_input = _normalize_data({**entry.data, **user_input})
-            except ValueError:
+            except TypeError, ValueError:
                 errors["base"] = "invalid_host"
             else:
                 if result := await self._async_validate(normalized_input, errors):

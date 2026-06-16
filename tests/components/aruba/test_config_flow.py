@@ -1,5 +1,6 @@
 """Tests for the Aruba config flow."""
 
+import ssl
 from unittest.mock import ANY, AsyncMock, patch
 
 from aioarubainstant import (
@@ -50,7 +51,8 @@ async def test_user_flow(
             result["flow_id"],
             {
                 **CONFIG,
-                CONF_HOST: "https://CONTROLLER.EXAMPLE.COM:4443/",
+                CONF_HOST: "https://CONTROLLER.EXAMPLE.COM/",
+                CONF_PORT: 4443.0,
             },
         )
         await hass.async_block_till_done()
@@ -69,11 +71,31 @@ async def test_user_flow(
         CONFIG[CONF_USERNAME],
         CONFIG[CONF_PASSWORD],
         port=4443,
-        verify_ssl=True,
-        session=ANY,
+        verify_ssl=ANY,
     )
+    ssl_context = mock_aruba_client.client_class.call_args.kwargs["verify_ssl"]
+    assert isinstance(ssl_context, ssl.SSLContext)
+    assert ssl_context.verify_mode is ssl.CERT_REQUIRED
+    assert ssl_context.options & ssl.OP_IGNORE_UNEXPECTED_EOF
     mock_aruba_client.async_get_snapshot.assert_awaited_once_with()
     mock_aruba_client.async_close.assert_awaited_once_with()
+
+
+async def test_fractional_port_is_rejected(
+    hass: HomeAssistant,
+    mock_aruba_client: AsyncMock,
+) -> None:
+    """Test a fractional port cannot reach the client URL builder."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**CONFIG, CONF_PORT: 4343.5}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_host"}
+    mock_aruba_client.client_class.assert_not_called()
 
 
 async def test_duplicate_cluster(
@@ -267,6 +289,11 @@ async def test_reconfigure(
     assert result["reason"] == "reconfigure_successful"
     assert mock_config_entry.data == {**CONFIG, **new_data}
     assert mock_config_entry.title == "Test cluster"
+    ssl_context = mock_aruba_client.client_class.call_args.kwargs["verify_ssl"]
+    assert isinstance(ssl_context, ssl.SSLContext)
+    assert ssl_context.verify_mode is ssl.CERT_NONE
+    assert not ssl_context.check_hostname
+    assert ssl_context.options & ssl.OP_IGNORE_UNEXPECTED_EOF
 
 
 async def test_reconfigure_different_cluster(

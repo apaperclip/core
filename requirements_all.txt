@@ -206,7 +206,7 @@ aioaquacell==1.0.0
 aioaquarite==0.5.1
 
 # homeassistant.components.aruba
-aioarubainstant==0.1.0
+aioarubainstant==0.1.2
 
 # homeassistant.components.aseko_pool_live
 aioaseko==1.0.0

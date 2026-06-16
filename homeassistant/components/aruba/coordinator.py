@@ -3,6 +3,7 @@
 import logging
 
 from aioarubainstant import (
+    ArubaAccessPoint,
     ArubaClient,
     ArubaInstantAuthenticationError,
     ArubaInstantClient,
@@ -25,11 +26,12 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN, SCAN_INTERVAL
+from .helpers import access_point_key
+from .ssl import get_ssl_context
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +39,7 @@ _LOGGER = logging.getLogger(__name__)
 class ArubaDataUpdateCoordinator(DataUpdateCoordinator[ArubaInstantSnapshot]):
     """Coordinate Aruba Instant snapshots."""
 
+    access_points: dict[str, ArubaAccessPoint]
     clients: dict[str, ArubaClient]
 
     def __init__(
@@ -58,10 +61,27 @@ class ArubaDataUpdateCoordinator(DataUpdateCoordinator[ArubaInstantSnapshot]):
             config_entry.data[CONF_USERNAME],
             config_entry.data[CONF_PASSWORD],
             port=config_entry.data[CONF_PORT],
-            verify_ssl=config_entry.data[CONF_VERIFY_SSL],
-            session=async_get_clientsession(hass),
+            verify_ssl=get_ssl_context(config_entry.data[CONF_VERIFY_SSL]),
         )
+        self.access_points = {}
         self.clients = {}
+
+    @property
+    def master_access_point_name(self) -> str | None:
+        """Return the current master access point name when known."""
+        if master_ap := self.data.cluster.master_ap:
+            return master_ap
+        master = next(
+            (
+                access_point
+                for access_point in self.access_points.values()
+                if access_point.is_master
+            ),
+            None,
+        )
+        if master is None:
+            return None
+        return master.name or master.ip_address or master.mac
 
     async def _async_update_data(self) -> ArubaInstantSnapshot:
         """Fetch one complete snapshot from the controller."""
@@ -88,6 +108,10 @@ class ArubaDataUpdateCoordinator(DataUpdateCoordinator[ArubaInstantSnapshot]):
                 translation_key="not_master",
             ) from err
         except (ArubaInstantCommandError, ArubaInstantParseError) as err:
+            try:
+                await self.client.async_logout()
+            except ArubaInstantError:
+                _LOGGER.debug("Error resetting the Aruba controller session")
             raise UpdateFailed(
                 translation_domain=DOMAIN,
                 translation_key="invalid_response",
@@ -107,5 +131,10 @@ class ArubaDataUpdateCoordinator(DataUpdateCoordinator[ArubaInstantSnapshot]):
                 translation_key="update_error",
             ) from err
 
+        self.access_points = {
+            key: access_point
+            for access_point in snapshot.access_points
+            if (key := access_point_key(access_point)) is not None
+        }
         self.clients = {format_mac(client.mac): client for client in snapshot.clients}
         return snapshot
