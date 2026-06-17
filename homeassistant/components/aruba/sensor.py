@@ -319,8 +319,8 @@ def _access_point_name(
         return access_point_id
     return (
         access_point.name
-        or access_point.serial
         or access_point.mac
+        or access_point.serial
         or access_point.ip_address
         or access_point_id
     )

@@ -440,6 +440,46 @@ async def test_restored_controller_access_point_clients_name_updates(
     )
 
 
+async def test_access_point_client_counter_prefers_mac_over_serial(
+    hass: HomeAssistant,
+    mock_aruba_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test AP client counter fallback prefers MAC address over serial number."""
+    access_point_mac = "20:a6:cd:c5:a0:ce"
+    mock_aruba_client.async_get_snapshot.return_value = create_snapshot(
+        access_points=(
+            ArubaAccessPoint(
+                mac=access_point_mac,
+                name=None,
+                ip_address="192.0.2.12",
+                model="AP-515",
+                serial="CK0113706",
+                firmware="8.6.0.22",
+                connected_clients=4,
+                is_master=True,
+            ),
+        ),
+        client_count=4,
+        master_ap=None,
+    )
+    entry = await _async_setup_entry(hass, mock_config_entry)
+
+    controller_access_point_clients_id = _entity_id(
+        entity_registry,
+        SENSOR_DOMAIN,
+        entry,
+        f"{entry.entry_id}_virtual_controller_ap_mac:{access_point_mac}"
+        "_connected_clients",
+    )
+
+    assert _state(hass, controller_access_point_clients_id).state == "4"
+    assert _state(hass, controller_access_point_clients_id).name.endswith(
+        f"{access_point_mac} connected clients"
+    )
+
+
 async def test_failed_refresh_connectivity(
     hass: HomeAssistant,
     mock_aruba_client: AsyncMock,

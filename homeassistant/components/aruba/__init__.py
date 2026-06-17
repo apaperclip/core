@@ -92,8 +92,8 @@ def _update_devices(
             model=access_point.model,
             name=(
                 access_point.name
-                or access_point.serial
                 or access_point.mac
+                or access_point.serial
                 or "Aruba access point"
             ),
             serial_number=access_point.serial,
