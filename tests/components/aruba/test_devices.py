@@ -379,6 +379,67 @@ async def test_restore_absent_access_point(
     assert _state(hass, "sensor.lobby_ap_connected_clients").state == STATE_UNAVAILABLE
 
 
+async def test_restored_controller_access_point_clients_name_updates(
+    hass: HomeAssistant,
+    mock_aruba_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test a restored controller AP client sensor uses the current AP name."""
+    serial_key = "serial:CK0113706"
+    access_point_name = "20-a6-cd-c5-a0-b4-upstairs"
+    mock_aruba_client.async_get_snapshot.return_value = create_snapshot(
+        (),
+        access_points=(),
+        ap_count=0,
+        client_count=0,
+        master_ap=None,
+    )
+    mock_config_entry.add_to_hass(hass)
+    entity_registry.async_get_or_create(
+        SENSOR_DOMAIN,
+        DOMAIN,
+        f"{mock_config_entry.entry_id}_virtual_controller_ap_{serial_key}"
+        "_connected_clients",
+        suggested_object_id="ck0113706_connected_clients",
+        config_entry=mock_config_entry,
+    )
+
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert _state(hass, "sensor.ck0113706_connected_clients").name.endswith(
+        "CK0113706 connected clients"
+    )
+
+    mock_aruba_client.async_get_snapshot.return_value = create_snapshot(
+        (),
+        access_points=(
+            ArubaAccessPoint(
+                mac=None,
+                name=access_point_name,
+                ip_address="192.0.2.12",
+                model="AP-515",
+                serial="CK0113706",
+                firmware="8.6.0.22",
+                connected_clients=4,
+                is_master=True,
+            ),
+        ),
+        ap_count=1,
+        client_count=4,
+        master_ap=access_point_name,
+    )
+
+    await mock_config_entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert _state(hass, "sensor.ck0113706_connected_clients").state == "4"
+    assert _state(hass, "sensor.ck0113706_connected_clients").name.endswith(
+        f"{access_point_name} connected clients"
+    )
+
+
 async def test_failed_refresh_connectivity(
     hass: HomeAssistant,
     mock_aruba_client: AsyncMock,

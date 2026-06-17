@@ -286,13 +286,15 @@ class ArubaControllerAccessPointClientsSensor(ArubaAccessPointEntity, SensorEnti
             identifiers={virtual_controller_device_identifier(entry.entry_id)}
         )
         self._attr_has_entity_name = False
-        self._attr_name = (
-            f"{_access_point_name(access_point_id, access_point)} connected clients"
-        )
         self._attr_unique_id = (
             f"{entry.entry_id}_virtual_controller_ap_{access_point_id}"
             "_connected_clients"
         )
+
+    @property
+    def name(self) -> str:
+        """Return the access point client count sensor name."""
+        return f"{_access_point_name(self._access_point_id, self.access_point)} connected clients"
 
     @property
     def available(self) -> bool:
@@ -312,6 +314,8 @@ def _access_point_name(
 ) -> str:
     """Return the best available access point name."""
     if access_point is None:
+        if ":" in access_point_id:
+            return access_point_id.split(":", 1)[1]
         return access_point_id
     return (
         access_point.name
