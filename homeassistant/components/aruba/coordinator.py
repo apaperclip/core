@@ -108,6 +108,11 @@ class ArubaDataUpdateCoordinator(DataUpdateCoordinator[ArubaInstantSnapshot]):
                 translation_key="not_master",
             ) from err
         except (ArubaInstantCommandError, ArubaInstantParseError) as err:
+            _LOGGER.debug(
+                "Invalid response from Aruba controller: %s",
+                err,
+                exc_info=True,
+            )
             try:
                 await self.client.async_logout()
             except ArubaInstantError:
