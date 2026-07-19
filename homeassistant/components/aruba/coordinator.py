@@ -86,7 +86,7 @@ class ArubaDataUpdateCoordinator(DataUpdateCoordinator[ArubaInstantSnapshot]):
     async def _async_update_data(self) -> ArubaInstantSnapshot:
         """Fetch one complete snapshot from the controller."""
         try:
-            snapshot = await self.client.async_get_snapshot()
+            snapshot = await self._async_get_snapshot()
         except ArubaInstantAuthenticationError as err:
             raise ConfigEntryAuthFailed(
                 translation_domain=DOMAIN,
@@ -143,3 +143,20 @@ class ArubaDataUpdateCoordinator(DataUpdateCoordinator[ArubaInstantSnapshot]):
         }
         self.clients = {format_mac(client.mac): client for client in snapshot.clients}
         return snapshot
+
+    async def _async_get_snapshot(self) -> ArubaInstantSnapshot:
+        """Fetch a snapshot, retrying once after a transient failure."""
+        try:
+            return await self.client.async_get_snapshot()
+        except (
+            ArubaInstantCommandError,
+            ArubaInstantConnectionError,
+            ArubaInstantParseError,
+        ) as err:
+            _LOGGER.debug("Aruba update failed, retrying: %s", type(err).__name__)
+            if isinstance(err, (ArubaInstantCommandError, ArubaInstantParseError)):
+                try:
+                    await self.client.async_logout()
+                except ArubaInstantError:
+                    _LOGGER.debug("Error resetting the Aruba controller session")
+            return await self.client.async_get_snapshot()

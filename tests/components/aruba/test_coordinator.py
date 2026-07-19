@@ -86,6 +86,34 @@ async def test_exception_mapping(
         await coordinator._async_update_data()
 
     if resets_session:
+        assert mock_aruba_client.async_logout.await_count == 2
+    else:
+        mock_aruba_client.async_logout.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(ArubaInstantConnectionError("connection"), id="connection"),
+        pytest.param(ArubaInstantCommandError("command"), id="command"),
+        pytest.param(ArubaInstantParseError("parse"), id="parse"),
+    ],
+)
+async def test_transient_error_is_retried(
+    hass: HomeAssistant,
+    mock_aruba_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    error: Exception,
+) -> None:
+    """Test a transient error is retried before an update fails."""
+    mock_aruba_client.async_get_snapshot.side_effect = [error, SNAPSHOT]
+    coordinator = ArubaDataUpdateCoordinator(hass, mock_config_entry)
+
+    snapshot = await coordinator._async_update_data()
+
+    assert snapshot == SNAPSHOT
+    assert mock_aruba_client.async_get_snapshot.await_count == 2
+    if isinstance(error, (ArubaInstantCommandError, ArubaInstantParseError)):
         mock_aruba_client.async_logout.assert_awaited_once_with()
     else:
         mock_aruba_client.async_logout.assert_not_awaited()

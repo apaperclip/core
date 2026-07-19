@@ -254,7 +254,7 @@ async def test_failed_refresh_keeps_last_presence(
     mock_config_entry: MockConfigEntry,
     entity_registry: er.EntityRegistry,
 ) -> None:
-    """Test a failed refresh marks entities unavailable without clearing clients."""
+    """Test failed refresh retries mark unavailable without clearing clients."""
     _enable_tracker_before_setup(hass, entity_registry, mock_config_entry, MAC)
     entry = await _async_setup_entry(hass, mock_config_entry)
     entity_id = await _entity_id(entity_registry, entry, MAC)
@@ -265,8 +265,30 @@ async def test_failed_refresh_keeps_last_presence(
     await entry.runtime_data.async_refresh()
 
     assert _state(hass, entity_id).state == STATE_UNAVAILABLE
+    assert mock_aruba_client.async_get_snapshot.await_count == 3
     assert MAC in entry.runtime_data.clients
     assert entry.runtime_data.data == SNAPSHOT
+
+
+async def test_transient_failed_refresh_keeps_tracker_available(
+    hass: HomeAssistant,
+    mock_aruba_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test a successful retry keeps a tracker available."""
+    _enable_tracker_before_setup(hass, entity_registry, mock_config_entry, MAC)
+    entry = await _async_setup_entry(hass, mock_config_entry)
+    entity_id = await _entity_id(entity_registry, entry, MAC)
+    mock_aruba_client.async_get_snapshot.side_effect = [
+        ArubaInstantConnectionError("connection failed"),
+        SNAPSHOT,
+    ]
+
+    await entry.runtime_data.async_refresh()
+
+    assert _state(hass, entity_id).state == STATE_HOME
+    assert mock_aruba_client.async_get_snapshot.await_count == 3
 
 
 async def test_yaml_import(
